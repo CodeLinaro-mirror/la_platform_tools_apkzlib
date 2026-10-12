@@ -27,6 +27,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -1755,10 +1756,10 @@ public class ZFileTest {
     data[55] = 0x00;
     data[56] = 0x00; // Disk CD start
     data[57] = 0x00;
-    data[54] = 0x01; // Total records 1
-    data[55] = 0x00;
-    data[56] = 0x02; // Total records 2, must be = to total records 1
-    data[57] = 0x00;
+    data[58] = 0x01; // Total records 1
+    data[59] = 0x00;
+    data[60] = 0x02; // Total records 2, must be = to total records 1 to be valid
+    data[61] = 0x00;
 
     try (ZFile zf = ZFile.openReadWrite(zipFileWithComments)) {
       zf.setEocdComment(data);
@@ -1964,6 +1965,90 @@ public class ZFileTest {
           storage = null;
         }
       };
+    }
+  }
+
+  @Test
+  public void trailingGarbageAfterEocdBehaviorWithStrictParsing() throws Exception {
+    File zip = new File(temporaryFolder.getRoot(), "trailing_garbage.zip");
+    try (ZFile zf = ZFile.openReadWrite(zip)) {
+      zf.add("hello.txt", new ByteArrayInputStream(new byte[] {1, 2, 3}));
+    }
+
+    // Append trailing garbage bytes
+    byte[] garbage = new byte[] {0x11, 0x22, 0x33, 0x44};
+    try (FileOutputStream fos = new FileOutputStream(zip, true)) {
+      fos.write(garbage);
+    }
+
+    // Strict mode should reject trailing garbage
+    ZFileOptions strictOptions = new ZFileOptions().setStrictZipParsing(true);
+    assertThrows(IOException.class, () -> ZFile.openReadOnly(zip, strictOptions));
+
+    // Non-strict mode should allow opening the archive
+    ZFileOptions nonStrictOptions = new ZFileOptions().setStrictZipParsing(false);
+    try (ZFile zf = ZFile.openReadOnly(zip, nonStrictOptions)) {
+      assertNotNull(zf.get("hello.txt"));
+    }
+  }
+
+  @Test
+  public void strictZipParsingControlledBySystemProperty() {
+    String prev = System.getProperty(ZFileOptions.STRICT_ZIP_PARSING_PROPERTY);
+    try {
+      System.setProperty(ZFileOptions.STRICT_ZIP_PARSING_PROPERTY, "true");
+      assertTrue(new ZFileOptions().getStrictZipParsing());
+
+      System.setProperty(ZFileOptions.STRICT_ZIP_PARSING_PROPERTY, "false");
+      assertFalse(new ZFileOptions().getStrictZipParsing());
+    } finally {
+      if (prev != null) {
+        System.setProperty(ZFileOptions.STRICT_ZIP_PARSING_PROPERTY, prev);
+      } else {
+        System.clearProperty(ZFileOptions.STRICT_ZIP_PARSING_PROPERTY);
+      }
+    }
+  }
+
+  @Test
+  public void eocdIgnoresDiskNumbersToAlignWithApksig() throws Exception {
+    File zip = new File(temporaryFolder.getRoot(), "disk_numbers.zip");
+
+    try (ZFile zf = ZFile.openReadWrite(zip)) {
+      zf.add("hello.txt", new ByteArrayInputStream(new byte[] {1, 2, 3}));
+    }
+
+    // Now corrupt the EOCD disk numbers
+    try (RandomAccessFile raf = new RandomAccessFile(zip, "rw")) {
+      // Find EOCD signature from the end (since there are no comments, it should be at length - 22)
+      long length = raf.length();
+      raf.seek(length - 22);
+      byte[] eocdSig = new byte[4];
+      raf.readFully(eocdSig);
+      assertArrayEquals(new byte[] {0x50, 0x4b, 0x05, 0x06}, eocdSig);
+
+      // Overwrite 'number of this disk' and 'disk where CD starts' (next 4 bytes)
+      raf.write(new byte[] {1, 0, 1, 0});
+    }
+
+    // ZFile should open this zip file successfully, ignoring the disk numbers,
+    // both with and without strict parsing.
+    ZFileOptions options = new ZFileOptions().setStrictZipParsing(true);
+    try (ZFile zf = ZFile.openReadOnly(zip, options)) {
+      assertNotNull(zf.get("hello.txt"));
+    }
+  }
+
+  @Test
+  public void malformedPolyglotApkWithFakeEocdThrowsExceptionInStrictParsing() throws Exception {
+    File polyglotZip = ZipTestUtils.cloneRsrc("trailing_garbage_fake_eocd.zip", temporaryFolder);
+
+    ZFileOptions strictOptions = new ZFileOptions().setStrictZipParsing(true);
+    assertThrows(IOException.class, () -> ZFile.openReadOnly(polyglotZip, strictOptions));
+
+    ZFileOptions nonStrictOptions = new ZFileOptions().setStrictZipParsing(false);
+    try (ZFile zf = ZFile.openReadOnly(polyglotZip, nonStrictOptions)) {
+      assertNotNull(zf.get("hello.txt"));
     }
   }
 }
