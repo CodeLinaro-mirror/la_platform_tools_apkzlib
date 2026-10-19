@@ -117,21 +117,19 @@ public class ManifestGenerationTest {
   @Test
   public void manifestGenerationOnExistingFile() throws Exception {
     File zip = new File(temporaryFolder.getRoot(), "f.zip");
-    try (Closer closer = Closer.create()) {
-      ZFile zf = closer.register(ZFile.openReadWrite(zip));
 
-      try (InputStream wiki = ApkZFileTestUtils.getResourceBytes(WIKI_PATH).openStream()) {
-        zf.add("wiki", wiki);
-      }
+    try (ZFile zf = ZFile.openReadWrite(zip);
+        InputStream wiki = ApkZFileTestUtils.getResourceBytes(WIKI_PATH).openStream()) {
+      zf.add("wiki", wiki);
+    }
 
-      zf.close();
-
+    try (ZFile zf = ZFile.openReadWrite(zip)) {
       ManifestGenerationExtension extension =
           new ManifestGenerationExtension("Me, of course", "Myself");
       extension.register(zf);
+    }
 
-      zf.close();
-
+    try (ZFile zf = ZFile.openReadOnly(zip)) {
       StoredEntry se = zf.get("META-INF/MANIFEST.MF");
       assertNotNull(se);
 
