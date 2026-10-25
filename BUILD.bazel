@@ -31,8 +31,6 @@ maven_library(
         "//tools/base/build-system:tools.apksig",
         "@maven//:com.google.code.findbugs.jsr305",
         "@maven//:com.google.guava.guava",
-        "@maven//:org.bouncycastle.bcpkix-jdk18on",
-        "@maven//:org.bouncycastle.bcprov-jdk18on",
     ],
 )
 
