@@ -44,6 +44,7 @@ java_library(
         ":apkzlib",
         "//tools/base/build-system:tools.apksig",
         "//tools/base/testutils:tools.testutils",
+        "@maven//:com.google.code.findbugs.jsr305",
         "@maven//:com.google.guava.guava",
         "@maven//:com.google.truth.truth",
         "@maven//:junit.junit",
